@@ -1,21 +1,9 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[3]:
-
-
-get_ipython().system('pip install streamlit')
-
-
-# In[4]:
-
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 
 # Title of the app
-st.title("SEO Landing Page Merger Tool")
+st.title("Keyword Clasher")
 
 # Upload CSV data
 file_upload = st.file_uploader("Choose a CSV file", type="csv")
