@@ -2,138 +2,113 @@ import streamlit as st
 import pandas as pd
 import base64
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
+from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-from datetime import datetime
+import os
+import json
 
-
-def get_authorization_url(client_id, client_secret):
-    oauth2_config = {
-        "installed": {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob"],
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://accounts.google.com/o/oauth2/token",
-            "scopes": ["https://www.googleapis.com/auth/webmasters.readonly"]
-        }
-    }
-    flow = Flow.from_client_config(oauth2_config, scopes=oauth2_config['installed']['scopes'], redirect_uri=oauth2_config['installed']['redirect_uris'][0])
-    auth_url, _ = flow.authorization_url(prompt='consent')
-    return auth_url, flow
-
-
-def exchange_code_for_credentials(flow, authorization_response):
-    flow.fetch_token(code=authorization_response)
-    return flow.credentials
-
-
+# Function to find pages to merge
 def find_pages_to_merge(data, position_threshold):
     merge_suggestions = []
 
-    for query in data['Query'].unique():
-        query_data = data[data['Query'] == query]
-        query_data = query_data.sort_values(by='Average Position', ascending=True)
+    for query in data['query'].unique():
+        query_data = data[data['query'] == query]
+        query_data = query_data.sort_values(by='position', ascending=True)
         best_page = query_data.iloc[0]
 
         pages_to_merge = []
         impressions = []
-        url_clicks = []
-        average_positions = []
+        clicks = []
+        positions = []
 
         for i, row in query_data.iloc[1:].iterrows():
-            if row['Average Position'] > position_threshold and best_page['Average Position'] < row['Average Position']:
-                pages_to_merge.append(row['Landing Page'])
-                impressions.append(str(row['Impressions']))
-                url_clicks.append(str(row['Url Clicks']))
-                average_positions.append(str(row['Average Position']))
+            if row['position'] > position_threshold and best_page['position'] < row['position']:
+                pages_to_merge.append(row['page'])
+                impressions.append(str(row['impressions']))
+                clicks.append(str(row['clicks']))
+                positions.append(str(row['position']))
 
         if pages_to_merge:
             merge_suggestions.append({'Query': query,
                                       'Pages to Merge': ', '.join(pages_to_merge),
                                       'Impressions (Pages to Merge)': ', '.join(impressions),
-                                      'Url Clicks (Pages to Merge)': ', '.join(url_clicks),
-                                      'Average Positions (Pages to Merge)': ', '.join(average_positions),
+                                      'Clicks (Pages to Merge)': ', '.join(clicks),
+                                      'Positions (Pages to Merge)': ', '.join(positions),
                                       'Number of Pages to Merge': len(pages_to_merge),
-                                      'Merge Into': best_page['Landing Page'],
-                                      'Average Position (Merge Into)': best_page['Average Position'],
-                                      'Impressions (Merge Into)': best_page['Impressions'],
-                                      'Url Clicks (Merge Into)': best_page['Url Clicks']})
+                                      'Merge Into': best_page['page'],
+                                      'Position (Merge Into)': best_page['position'],
+                                      'Impressions (Merge Into)': best_page['impressions'],
+                                      'Clicks (Merge Into)': best_page['clicks']})
 
     return pd.DataFrame(merge_suggestions)
 
 
-st.title('Google Search Console Page Merger Tool')
+# Streamlit app
+st.title('SEO Pages Merger Tool')
 
-st.markdown('## Instructions')
-st.markdown('- Add your Google Cloud Client ID and Client Secret.')
-st.markdown('- Authorize the app to access your Google Search Console data.')
-st.markdown('- Select your site from the dropdown list.')
-st.markdown('- Set the minimum impressions and average position threshold as required.')
-st.markdown('- Click on the "Run" button to process the data.')
+# Display instructions
+st.markdown("## Instructions")
+st.markdown("- Authenticate and authorize using your Google account.")
+st.markdown("- Select a website property from Google Search Console.")
+st.markdown("- Set the minimum position threshold as required.")
+st.markdown("- Click on the 'Fetch and Analyze Data' button to process the data.")
 
-client_id = st.text_input("Client ID")
-client_secret = st.text_input("Client Secret", type="password")
+# Set OAuth 2.0 credentials
+client_config = {
+    "installed": {
+        "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+        "client_secret": "YOUR_CLIENT_SECRET",
+        "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob"],
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://accounts.google.com/o/oauth2/token"
+    }
+}
+scopes = ['https://www.googleapis.com/auth/webmasters.readonly']
+flow = InstalledAppFlow.from_client_config(client_config, scopes=scopes)
+credentials = flow.run_local_server(port=0)
 
-if client_id and client_secret:
-    auth_url, flow = get_authorization_url(client_id, client_secret)
+# Initialize Google Search Console API service
+service = build('searchconsole', 'v1', credentials=credentials)
 
-    if st.button('Authorize Access'):
-        st.markdown(f"[Authorize Access]({auth_url})")
+# Fetch list of websites
+sites = service.sites().list().execute()
 
-    authorization_response = st.text_input("Enter the authorization code here:")
+# Select website property
+selected_site = st.selectbox("Select website property:", [site['siteUrl'] for site in sites['siteEntry']])
 
-    if authorization_response:
-        credentials = exchange_code_for_credentials(flow, authorization_response)
-        searchconsole = build('webmasters', 'v3', credentials=credentials)
-        sites = searchconsole.sites().list().execute()
+# Set position threshold
+position_threshold = st.number_input('Enter Position Threshold:', min_value=1, value=20)
 
-        site_url = st.selectbox('Select your site:', [site['siteUrl'] for site in sites['siteEntry']])
-        start_date = st.date_input("Start date")
-        end_date = st.date_input("End date")
+# Fetch and analyze data
+if st.button("Fetch and Analyze Data"):
+    # Fetch Google Search Console data
+    request = {
+        'startDate': '2023-01-01',  # You can change this
+        'endDate': '2023-06-01',    # You can change this
+        'dimensions': ['query', 'page'],
+        'rowLimit': 10000           # You can change this
+    }
+    response = service.searchanalytics().query(siteUrl=selected_site, body=request).execute()
 
-        min_impressions = st.number_input('Enter Minimum Impressions:', min_value=1, value=500)
-        position_threshold = st.number_input('Enter Average Position Threshold:', min_value=1, value=20)
+    # Convert data into a DataFrame
+    data = pd.DataFrame(response['rows'])
+    data['impressions'] = data['impressions'].astype(int)
+    data['clicks'] = data['clicks'].astype(int)
+    data['position'] = data['position'].astype(float)
 
-        if st.button('Run Analysis'):
-            response = searchconsole.searchanalytics().query(
-                siteUrl=site_url,
-                body={
-                    'startDate': start_date.strftime('%Y-%m-%d'),
-                    'endDate': end_date.strftime('%Y-%m-%d'),
-                    'dimensions': ['query', 'page'],
-                    'rowLimit': 10000
-                }
-            ).execute()
+    # Analyze data
+    result_df = find_pages_to_merge(data, position_threshold)
 
-            rows = response['rows']
-            data = pd.DataFrame([{
-                'Query': row['keys'][0],
-                'Landing Page': row['keys'][1],
-                'Impressions': row['impressions'],
-                'Url Clicks': row['clicks'],
-                'Average Position': row['position']
-            } for row in rows])
-
-            st.markdown('### Data Fetched From Google Search Console')
-            st.dataframe(data)
-
-            result_df = find_pages_to_merge(data, position_threshold)
-
-            if not result_df.empty:
-                st.markdown('### Pages To Merge')
-                st.dataframe(result_df)
-                total_pages_to_merge = result_df['Number of Pages to Merge'].sum()
-                st.markdown(f'#### Total Number of Pages to Merge: {total_pages_to_merge}')
-                csv = result_df.to_csv(index=False).encode()
-                st.download_button(
-                    label="Download as CSV",
-                    data=csv,
-                    file_name='pages_to_merge.csv',
-                    mime='text/csv'
-                )
-            else:
-                st.write('No pages to merge found with the chosen parameters.')
-else:
-    st.warning('Please enter your Google Cloud Client ID and Client Secret.')
+    # Display results
+    if not result_df.empty:
+        st.markdown('### Pages To Merge')
+        st.dataframe(result_df)
+        total_pages_to_merge = result_df['Number of Pages to Merge'].sum()
+        st.markdown(f'#### Total Number of Pages to Merge: {total_pages_to_merge}')
+        csv = result_df.to_csv(index=False).encode()
+        b64 = base64.b64encode(csv).decode()
+        href = f'<a href="data:application/octet-stream;base64,{b64}" download="pages_to_merge.csv">Download as CSV</a>'
+        st.markdown(href, unsafe_allow_html=True)
+    else:
+        st.write('No pages to merge found with the chosen parameters.')
