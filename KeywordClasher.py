@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from io import StringIO
+import base64
 
 # Title of the Streamlit app
-st.title('Keyword Clasher')
+st.title('SEO Pages Merger Tool')
 
 # Upload CSV file
 uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
@@ -53,10 +53,13 @@ if st.button('Run'):
             st.write(result_df)
             
             # Convert the DataFrame to CSV and create a download button
-            csv = result_df.to_csv(index=False)
-            b64 = base64.b64encode(csv.encode()).decode()  # some strings <-> bytes conversions necessary here
-            href = f'<a href="data:file/csv;base64,{b64}" download="pages_to_merge.csv">Download as CSV</a>'
-            st.markdown(href, unsafe_allow_html=True)
+            csv = result_df.to_csv(index=False).encode()
+            st.download_button(
+                label="Download as CSV",
+                data=csv,
+                file_name='pages_to_merge.csv',
+                mime='text/csv'
+            )
             
         else:
             st.write('No pages to merge found with the chosen parameters.')
