@@ -1,69 +1,62 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import base64
 
-def merge_pages(data, min_impressions, position_threshold):
-    # Filter out rows with impressions below the minimum threshold
-    filtered_data = data[data['Impressions'] >= min_impressions]
-    
-    # Group by query and landing_page
-    grouped_data = filtered_data.groupby(['Query', 'Landing Page']).agg({
-        'Url Clicks': 'sum',
-        'Impressions': 'sum',
-        'Average Position': 'mean'
-    }).reset_index()
 
-    # Determine pages to merge
-    pages_to_merge = []
-    for query in grouped_data['Query'].unique():
-        subset = grouped_data[grouped_data['Query'] == query]
-        best_candidates = subset[(subset['Average Position'] <= position_threshold)]
-        for _, row in subset.iterrows():
-            if row['Average Position'] > position_threshold:
-                merge_into = best_candidates.sort_values('Average Position').head(1)
-                if not merge_into.empty:
-                    pages_to_merge.append({
-                        'query': row['Query'],
-                        'page_to_merge': row['Landing Page'],
-                        'merge_into': merge_into.iloc[0]['Landing Page'],
-                        'page_to_merge_clicks': row['Url Clicks'],
-                        'page_to_merge_impressions': row['Impressions'],
-                        'page_to_merge_avg_position': row['Average Position']
-                    })
+def find_pages_to_merge(data, position_threshold):
+    merge_suggestions = []
 
-    # Create a DataFrame from the results
-    result_df = pd.DataFrame(pages_to_merge)
-    return result_df
+    for query in data['Query'].unique():
+        query_data = data[data['Query'] == query]
+        query_data = query_data.sort_values(by='Average Position', ascending=True)
+        best_page = query_data.iloc[0]
+
+        pages_to_merge = []
+        impressions = []
+        url_clicks = []
+        average_positions = []
+
+        for i, row in query_data.iloc[1:].iterrows():
+            if row['Average Position'] > position_threshold and best_page['Average Position'] < row['Average Position']:
+                pages_to_merge.append(row['Landing Page'])
+                impressions.append(str(row['Impressions']))
+                url_clicks.append(str(row['Url Clicks']))
+                average_positions.append(str(row['Average Position']))
+
+        if pages_to_merge:
+            merge_suggestions.append({'Query': query,
+                                      'Pages to Merge': ', '.join(pages_to_merge),
+                                      'Impressions (Pages to Merge)': ', '.join(impressions),
+                                      'Url Clicks (Pages to Merge)': ', '.join(url_clicks),
+                                      'Average Positions (Pages to Merge)': ', '.join(average_positions),
+                                      'Number of Pages to Merge': len(pages_to_merge),
+                                      'Merge Into': best_page['Landing Page'],
+                                      'Average Position (Merge Into)': best_page['Average Position'],
+                                      'Impressions (Merge Into)': best_page['Impressions'],
+                                      'Url Clicks (Merge Into)': best_page['Url Clicks']})
+
+    return pd.DataFrame(merge_suggestions)
 
 
-# Title of the Streamlit app
 st.title('SEO Pages Merger Tool')
 
-# Upload CSV file
 uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
-# Input for minimum impressions
 min_impressions = st.number_input('Enter Minimum Impressions:', min_value=1, value=500)
 
-# Input for average position threshold
 position_threshold = st.number_input('Enter Average Position Threshold:', min_value=1, value=20)
 
-# Run button
 if st.button('Run'):
-    # Check if file is uploaded
     if uploaded_file is not None:
-        # Read the CSV file
         data = pd.read_csv(uploaded_file)
+        filtered_data = data[data['Impressions'] >= min_impressions]
 
-        # Process the data and apply filters
-        result_df = merge_pages(data, min_impressions, position_threshold)
+        grouped_data = filtered_data.groupby(['Query', 'Landing Page']).agg({'Impressions': 'sum', 'Url Clicks': 'sum', 'Average Position': 'mean'}).reset_index()
 
-        # Display the result
+        result_df = find_pages_to_merge(grouped_data, position_threshold)
+
         if not result_df.empty:
             st.write(result_df)
-
-            # Convert the DataFrame to CSV and create a download button
             csv = result_df.to_csv(index=False).encode()
             st.download_button(
                 label="Download as CSV",
@@ -71,7 +64,6 @@ if st.button('Run'):
                 file_name='pages_to_merge.csv',
                 mime='text/csv'
             )
-
         else:
             st.write('No pages to merge found with the chosen parameters.')
     else:
