@@ -2,60 +2,54 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# Title of the app
-st.title("Keyword Clasher")
+# Title of the Streamlit app
+st.title('SEO Pages Merger Tool')
 
-# Upload CSV data
-file_upload = st.file_uploader("Choose a CSV file", type="csv")
-
-# Instructions
-st.markdown("Upload a CSV file with the columns: 'Query', 'Landing Page', 'Url Clicks', 'Impressions', 'Average Position'. The app will process the data and show you which landing pages can be merged based on the specified criteria.")
+# Upload CSV file
+uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
 # If a file is uploaded
-if file_upload is not None:
-    # Load data
-    data = pd.read_csv(file_upload)
+if uploaded_file is not None:
+    # Read the CSV file
+    data = pd.read_csv(uploaded_file)
     
-    # Show initial data in table format
-    st.subheader("Initial Data")
-    st.table(data.head())
-
-    # Logic for merging pages
-    min_impressions = st.sidebar.slider("Minimum Impressions", 1, 1000, 500)
-    position_threshold = st.sidebar.slider("Position Threshold", 1, 100, 10)
+    # Slider widget for minimum impressions
+    min_impressions = st.slider('Choose Minimum Impressions:', 0, 1000, 500)
     
-    data_filtered = data[data['Impressions'] >= min_impressions]
+    # Slider widget for average position threshold
+    position_threshold = st.slider('Choose Average Position Threshold:', 1, 100, 20)
     
-    merge_recommendations = []
+    # Process the data and apply filters
+    filtered_data = data[data['Impressions'] >= min_impressions]
+    aggregated_data = filtered_data.groupby(['Query', 'Landing Page']).agg(
+        total_clicks=('Url Clicks', 'sum'),
+        total_impressions=('Impressions', 'sum'),
+        avg_position=('Average Position', 'mean')
+    ).reset_index()
+    
+    # Find pages to merge
+    result = []
+    for query in aggregated_data['Query'].unique():
+        subset = aggregated_data[aggregated_data['Query'] == query]
+        for _, row in subset.iterrows():
+            if row['avg_position'] > position_threshold:
+                best_candidate = subset[subset['avg_position'] <= position_threshold].sort_values('avg_position').head(1)
+                if not best_candidate.empty:
+                    result.append({
+                        'query': row['Query'],
+                        'page_to_merge': row['Landing Page'],
+                        'merge_into': best_candidate.iloc[0]['Landing Page'],
+                        'total_clicks': row['total_clicks'],
+                        'total_impressions': row['total_impressions'],
+                        'avg_position': row['avg_position']
+                    })
 
-    for query in data_filtered['Query'].unique():
-        relevant_pages = data_filtered[data_filtered['Query'] == query]
-        best_page = relevant_pages.loc[relevant_pages['Average Position'].idxmin()]
-        
-        for index, page in relevant_pages.iterrows():
-            if page['Average Position'] > best_page['Average Position'] and page['Average Position'] > position_threshold:
-                merge_recommendations.append({
-                    'Query': query,
-                    'Merge Into': best_page['Landing Page'],
-                    'Page to Merge': page['Landing Page'],
-                    'Impressions': page['Impressions'],
-                    'Average Position': page['Average Position'],
-                    'Url Clicks': page['Url Clicks']
-                })
-
-    if merge_recommendations:
-        recommendations_df = pd.DataFrame(merge_recommendations)
-        # Show recommendations
-        st.subheader("Merge Recommendations")
-        st.table(recommendations_df)
+    # Display the result
+    result_df = pd.DataFrame(result)
+    if not result_df.empty:
+        st.write(result_df)
     else:
-        st.warning("No merge recommendations found with the current criteria.")
+        st.write('No pages to merge found with the chosen parameters.')
 
-# You can add more features like buttons, charts, images, etc.
-
-
-# In[ ]:
-
-
-
-
+else:
+    st.write('Please upload a CSV file.')
